@@ -629,7 +629,11 @@ interface_declaration_statement:
 		T_INTERFACE { $<num>$ = CG(zend_lineno); }
 		T_STRING interface_extends_list backup_doc_comment '{' class_statement_list '}'
 			{ $$ = zend_ast_create_decl(ZEND_AST_CLASS, ZEND_ACC_INTERFACE, $<num>2, $5, zend_ast_get_str($3), NULL, $4, $7, NULL, NULL); }
+		| T_INTERFACE { $<num>$ = CG(zend_lineno); }
+		T_STRING interface_extends_list backup_doc_comment '[' array_statement_list ']'
+			{ $$ = zend_ast_create_decl(ZEND_AST_CLASS, ZEND_ACC_INTERFACE, $<num>2, $4, zend_ast_get_str($2), NULL, $3, $6, NULL, NULL); }
 ;
+
 
 enum_declaration_statement:
 		T_ENUM { $<num>$ = CG(zend_lineno); }
@@ -850,8 +854,14 @@ intersection_type:
  * to avoid conflicts with "static" modifier for properties. */
 
 type_expr_without_static:
-		type_without_static			{ $$ = $1; }
+		type_without_static		{ $$ = $1; }
 	|	'?' type_without_static		{ $$ = $2; $$->attr |= ZEND_TYPE_NULLABLE; }
+	|	union_type_without_static	{ $$ = $1; }
+	|	intersection_type_without_static	{ $$ = $1; }
+;
+
+type_expr_without_static_or_nullable:
+		type_without_static		{ $$ = $1; }
 	|	union_type_without_static	{ $$ = $1; }
 	|	intersection_type_without_static	{ $$ = $1; }
 ;
@@ -934,6 +944,19 @@ class_statement_list:
 			{ $$ = zend_ast_create_list(0, ZEND_AST_STMT_LIST); }
 ;
 
+array_statement_list:
+    %empty
+        { $$ = zend_ast_create_list(0, ZEND_AST_ARRAY); }
+    | typed_array_element
+        { $$ = zend_ast_create_list(1, ZEND_AST_ARRAY, $1); }
+    | array_statement_list ',' typed_array_element
+        { $$ = zend_ast_list_add($1, $3); }
+;
+
+typed_array_element:
+    T_STRING T_DOUBLE_ARROW type_expr_without_static
+        { $$ = zend_ast_create(ZEND_AST_ARRAY_ELEM, $3, zend_ast_zval_create_string($1)); }
+;
 
 attributed_class_statement:
 		property_modifiers optional_type_without_static property_list ';'
@@ -1221,6 +1244,10 @@ expr:
 			{ $$ = zend_ast_create_binary_op(ZEND_SPACESHIP, $1, $3); }
 	|	expr T_INSTANCEOF class_name_reference
 			{ $$ = zend_ast_create(ZEND_AST_INSTANCEOF, $1, $3); }
+	| 	type_without_static expr
+                        { $$ = zend_ast_create(ZEND_AST_CAST, $2, $4); }
+	|	'(' type_expr_without_static_or_nullable ')' expr
+			{ $$ = zend_ast_create(ZEND_AST_CAST, $2, $4); }
 	|	'(' expr ')' {
 			$$ = $2;
 			if ($$->kind == ZEND_AST_CONDITIONAL) $$->attr = ZEND_PARENTHESIZED_CONDITIONAL;
